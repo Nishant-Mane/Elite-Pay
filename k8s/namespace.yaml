@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: elite-pay
+  labels:
+    app.kubernetes.io/name: elite-pay
+    app.kubernetes.io/managed-by: kubectl

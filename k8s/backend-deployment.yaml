@@ -1,0 +1,101 @@
+##############################################################################
+# Elite.Pay – Backend Deployment + NodePort Service
+#
+# • 2 replicas pinned to nodes labelled  role=backend
+# • All env vars injected from the elite-pay-secret Secret
+# • Readiness probe on GET /health
+##############################################################################
+
+# ── Service ───────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: elite-pay-backend
+  namespace: elite-pay
+  labels:
+    app: elite-pay-backend
+    app.kubernetes.io/part-of: elite-pay
+spec:
+  type: NodePort
+  selector:
+    app: elite-pay-backend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      nodePort: 30300     # access via any node IP on :30300
+
+---
+# ── Deployment ────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elite-pay-backend
+  namespace: elite-pay
+  labels:
+    app: elite-pay-backend
+    app.kubernetes.io/part-of: elite-pay
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: elite-pay-backend
+  # Rolling update – never go below 1 running pod
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+
+  template:
+    metadata:
+      labels:
+        app: elite-pay-backend
+    spec:
+      # ── Pin to nodes labelled role=backend ─────────────────────────────────
+      nodeSelector:
+        role: backend
+
+      # Graceful shutdown window (Express should finish in-flight requests)
+      terminationGracePeriodSeconds: 30
+
+      containers:
+        - name: backend
+          # Replace with your actual image tag pushed to DockerHub / ECR
+          image: your-dockerhub-username/elite-pay-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+
+          # ── Environment from Secret ────────────────────────────────────────
+          envFrom:
+            - secretRef:
+                name: elite-pay-secret
+
+          # ── Readiness probe: /health must return 200 before traffic ─────────
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+
+          # ── Liveness probe ─────────────────────────────────────────────────
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+
+          # ── Resource guardrails ────────────────────────────────────────────
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

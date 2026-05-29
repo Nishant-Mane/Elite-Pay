@@ -1,0 +1,93 @@
+##############################################################################
+# Elite.Pay – Frontend Deployment + NodePort Service
+#
+# • 2 replicas pinned to nodes labelled  role=frontend
+# • Serves the Vite-built React SPA via Nginx
+# • Nginx config proxies /api  →  elite-pay-backend service
+##############################################################################
+
+# ── Service ───────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: elite-pay-frontend
+  namespace: elite-pay
+  labels:
+    app: elite-pay-frontend
+    app.kubernetes.io/part-of: elite-pay
+spec:
+  type: NodePort
+  selector:
+    app: elite-pay-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      nodePort: 30080     # access via any node IP on :30080
+
+---
+# ── Deployment ────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elite-pay-frontend
+  namespace: elite-pay
+  labels:
+    app: elite-pay-frontend
+    app.kubernetes.io/part-of: elite-pay
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: elite-pay-frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+
+  template:
+    metadata:
+      labels:
+        app: elite-pay-frontend
+    spec:
+      # ── Pin to nodes labelled role=frontend ────────────────────────────────
+      nodeSelector:
+        role: frontend
+
+      terminationGracePeriodSeconds: 15
+
+      containers:
+        - name: frontend
+          # Replace with your actual image tag pushed to DockerHub / ECR
+          image: your-dockerhub-username/elite-pay-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+
+          # ── Readiness probe ────────────────────────────────────────────────
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+
+          # ── Liveness probe ─────────────────────────────────────────────────
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+
+          # ── Resource guardrails ────────────────────────────────────────────
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"

@@ -1,0 +1,129 @@
+##############################################################################
+# Elite.Pay – MongoDB StatefulSet
+#
+# • Pinned to a node labelled   role=mongo   via nodeSelector
+# • Headless Service for stable DNS:  mongo-0.mongo.elite-pay.svc.cluster.local
+# • NodePort Service for optional external access / debugging
+# • 10 Gi PersistentVolumeClaim per pod (uses the default StorageClass)
+##############################################################################
+
+# ── Headless Service ──────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+  namespace: elite-pay
+  labels:
+    app: mongo
+    app.kubernetes.io/part-of: elite-pay
+spec:
+  clusterIP: None           # headless → DNS entries per pod
+  selector:
+    app: mongo
+  ports:
+    - port: 27017
+      targetPort: 27017
+      name: mongo
+
+---
+# ── NodePort Service (optional – for direct access / debugging) ───────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-nodeport
+  namespace: elite-pay
+  labels:
+    app: mongo
+    app.kubernetes.io/part-of: elite-pay
+spec:
+  type: NodePort
+  selector:
+    app: mongo
+  ports:
+    - port: 27017
+      targetPort: 27017
+      nodePort: 30017      # access via any node IP on port 30017
+      name: mongo
+
+---
+# ── StatefulSet ───────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongo
+  namespace: elite-pay
+  labels:
+    app: mongo
+    app.kubernetes.io/part-of: elite-pay
+spec:
+  serviceName: "mongo"      # must match headless service name
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo
+  template:
+    metadata:
+      labels:
+        app: mongo
+    spec:
+      # ── Pin to the node labelled role=mongo ──────────────────────────────
+      nodeSelector:
+        role: mongo
+
+      # Terminate in-flight writes gracefully
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: mongo
+          image: mongo:7.0
+          ports:
+            - containerPort: 27017
+
+          # Wire the data directory to the PVC
+          volumeMounts:
+            - name: mongo-data
+              mountPath: /data/db
+
+          # Resource guardrails
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+
+          # Readiness probe – wait for MongoDB to accept connections
+          readinessProbe:
+            exec:
+              command:
+                - mongosh
+                - --eval
+                - "db.adminCommand('ping')"
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 5
+
+          # Liveness probe
+          livenessProbe:
+            exec:
+              command:
+                - mongosh
+                - --eval
+                - "db.adminCommand('ping')"
+            initialDelaySeconds: 40
+            periodSeconds: 20
+            failureThreshold: 3
+
+  # ── Automatic PVC per replica ─────────────────────────────────────────────
+  volumeClaimTemplates:
+    - metadata:
+        name: mongo-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+        # Omit storageClassName to use the cluster's default StorageClass.
+        # To use AWS EBS, uncomment the line below:
+        # storageClassName: gp2
