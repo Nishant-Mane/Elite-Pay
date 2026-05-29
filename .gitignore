@@ -12,6 +12,11 @@ node_modules/
 .env.production
 .env.production.local
 
+# ── Kubernetes secrets (NEVER commit real values) ──
+# secret.yaml ships with placeholders in the repo;
+# once you populate it with real values, keep it local.
+k8s/secret.yaml
+
 # ── Build outputs ─────────────────────────────
 dist/
 build/
